@@ -1,4 +1,6 @@
-function Mesh() {
+function Mesh(gl) {
+	var gl = gl;
+	
 	this.vertices = [];
 	this.uvs = [];
 	this.normals = [];
@@ -35,15 +37,15 @@ function Mesh() {
 		this.IBO.numItems = this.indices.length / this.IBO.itemSize;
 	};
 	
-	this.render = function() {		
+	this.render = function(shader) {		
 		gl.bindBuffer(gl.ARRAY_BUFFER, this.VBO);
-		gl.vertexAttribPointer(shaderProgram.vertexPositionAttribute, this.VBO.itemSize, gl.FLOAT, false, 0, 0);
+		gl.vertexAttribPointer(shader.getShaderProgram().vertexPositionAttribute, this.VBO.itemSize, gl.FLOAT, false, 0, 0);
 		
 		gl.bindBuffer(gl.ARRAY_BUFFER, this.TBO);
-		gl.vertexAttribPointer(shaderProgram.vertexUVAttribute, this.TBO.itemSize, gl.FLOAT, false, 0, 0);
+		gl.vertexAttribPointer(shader.getShaderProgram().vertexUVAttribute, this.TBO.itemSize, gl.FLOAT, false, 0, 0);
 		
 		gl.bindBuffer(gl.ARRAY_BUFFER, this.NBO);
-		gl.vertexAttribPointer(shaderProgram.vertexNormalAttribute, this.NBO.itemSize, gl.FLOAT, false, 0, 0);
+		gl.vertexAttribPointer(shader.getShaderProgram().vertexNormalAttribute, this.NBO.itemSize, gl.FLOAT, false, 0, 0);
 				
 		gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this.IBO);
 		gl.drawElements(gl.TRIANGLES, this.IBO.numItems, gl.UNSIGNED_SHORT, 0);

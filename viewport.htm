@@ -27,7 +27,14 @@
 		Hold the right mouse button to zoom in.
 		
 	</div>
-	<div class="viewport-fps">FPS: <span id="fps">0</span></div>
+	<div class="viewport-data">
+	
+		FPS: <span id="fps">0</span><br />
+		X: <span id="x">0</span><br />
+		Y: <span id="y">0</span><br />
+		Z: <span id="z">0</span>
+	
+	</div>
 			
 	<script type="text/javascript" src="//code.jquery.com/jquery-2.1.4.min.js"></script>
 	<script type="text/javascript" src="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.6/js/bootstrap.min.js" integrity="sha384-0mSbJDEHialfmuBBQP6A4Qrprq5OVfW37PRR3j5ELqxss1yVqOtnepnHVP9aJ7xS" crossorigin="anonymous"></script>
@@ -45,6 +52,7 @@
 	<script type="text/javascript" src="/resources/scripts/viewport/util/gl-matrix.js"></script>
 	<script type="text/javascript" src="/resources/scripts/viewport/util/webgl-utils.js"></script>
 	<script type="text/javascript" src="/resources/scripts/viewport/viewport.js"></script>
+	<script type="text/javascript" src="/resources/scripts/viewport/world/world.js"></script>
 	
 	<script id="shader-vs" type="x-shader/x-vertex">
 		attribute highp vec3 posVertex;

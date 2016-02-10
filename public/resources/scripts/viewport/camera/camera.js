@@ -1,4 +1,6 @@
-function Camera() {
+function Camera(gl) {
+	var gl = gl;
+	
 	var pos = vec3.create();
 	this.direction = vec3.fromValues(0, 0, -1);
 	var target = vec3.create();

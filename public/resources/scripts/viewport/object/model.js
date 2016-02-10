@@ -1,4 +1,6 @@
-function Model() {
+function Model(gl) {
+	var gl = gl;
+	
 	this.meshes = [];
 	
 	this.loadModel = function(path) {
@@ -120,7 +122,7 @@ function Model() {
 				}
 				
 				// Create a new mesh
-				currentMesh = new Mesh();
+				currentMesh = new Mesh(gl);
 			}
 			
 			// If row is a vertex
@@ -272,9 +274,9 @@ function Model() {
 		return "";
 	}
 	
-	this.render = function() {
+	this.render = function(shader) {
 		for (var i = 0; i < this.meshes.length; i++) {
-			this.meshes[i].render();
+			this.meshes[i].render(shader);
 		}
 	};
 }

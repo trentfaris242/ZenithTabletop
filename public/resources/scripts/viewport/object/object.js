@@ -1,5 +1,7 @@
-function Object(path) {
-	this.model = new Model();
+function Object(gl, path) {
+	var gl = gl;
+	
+	this.model = new Model(gl);
 	this.model.loadModel(path);
 	
 	this.material = new Material();
@@ -24,7 +26,7 @@ function Object(path) {
 		return transform;
 	};
 	
-	this.render = function() {		
-		this.model.render();
+	this.render = function(shader) {		
+		this.model.render(shader);
 	};
 }

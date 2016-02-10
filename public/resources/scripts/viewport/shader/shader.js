@@ -1,10 +1,10 @@
-var shaderProgram;
-
-function initShaders() {
+function Shader(gl) {
+	var gl = gl;
+		
 	var vertexShader = getShader(gl, "shader-vs");
 	var fragmentShader = getShader(gl, "shader-fs");
 	
-	shaderProgram = gl.createProgram();
+	var shaderProgram = gl.createProgram();
 	gl.attachShader(shaderProgram, vertexShader);
 	gl.attachShader(shaderProgram, fragmentShader);
 	gl.linkProgram(shaderProgram);
@@ -12,43 +12,47 @@ function initShaders() {
 	if (!gl.getProgramParameter(shaderProgram, gl.LINK_STATUS)) {
 		alert("Unable to initialize the shader program.");
 	}
-}
 
-function getShader(gl, id) {
-	var shaderScript = document.getElementById(id);
+	function getShader(gl, id) {
+		var shaderScript = document.getElementById(id);
 	
-	if (!shaderScript) {
-		return null;
-	}
+		if (!shaderScript) {
+			return null;
+		}
 	
-	var theSource = "";
-	var currentChild = shaderScript.firstChild;
+		var theSource = "";
+		var currentChild = shaderScript.firstChild;
 		
-	while (currentChild) {
-		if (currentChild.nodeType == currentChild.TEXT_NODE) {
-			theSource += currentChild.textContent;
+		while (currentChild) {
+			if (currentChild.nodeType == currentChild.TEXT_NODE) {
+				theSource += currentChild.textContent;
+			}
+		
+			currentChild = currentChild.nextSibling;
 		}
 		
-		currentChild = currentChild.nextSibling;
+		var shader;
+		if (shaderScript.type == "x-shader/x-vertex") {
+			shader = gl.createShader(gl.VERTEX_SHADER);
+		} else if (shaderScript.type == "x-shader/x-fragment") {
+			shader = gl.createShader(gl.FRAGMENT_SHADER);
+		} else {
+			return null;
+		}
+	
+		gl.shaderSource(shader, theSource);
+	
+		gl.compileShader(shader);
+	
+		if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
+			alert("An error occurred compiling the shader: " + gl.getShaderInfoLog(shader));
+			return null;
+		}
+	
+		return shader;
 	}
-		
-	var shader;
-	if (shaderScript.type == "x-shader/x-vertex") {
-		shader = gl.createShader(gl.VERTEX_SHADER);
-	} else if (shaderScript.type == "x-shader/x-fragment") {
-		shader = gl.createShader(gl.FRAGMENT_SHADER);
-	} else {
-		return null;
-	}
 	
-	gl.shaderSource(shader, theSource);
-	
-	gl.compileShader(shader);
-	
-	if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
-		alert("An error occurred compiling the shader: " + gl.getShaderInfoLog(shader));
-		return null;
-	}
-	
-	return shader;
-}
+	this.getShaderProgram = function() {
+		return shaderProgram;
+	};
+};

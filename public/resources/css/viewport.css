@@ -14,14 +14,14 @@ canvas {
 	width: 18em;
 }
 
-.viewport-fps {
+.viewport-data {
 	position: relative;
 	background-color: rgba(0, 0, 0, 0.5);
 	color: #ffffff;
 	border-radius: 1em;
 	margin: 2em;
 	padding: 1em;
-	width: 6em;
+	width: 7em;
 	clear: both;
 	float: right;
 }
