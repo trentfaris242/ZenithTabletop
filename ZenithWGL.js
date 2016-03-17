@@ -961,13 +961,13 @@ function ZenithWGL(canvas) {
 			gl.viewport(0, 0, canvas.width, canvas.height);
 		}
 	}
-
-	function Shader() {
+	
+	function Shader(vertex, fragment) {
 		var shaderProgram = gl.createProgram();
-
-		var vertexShader = getShader(gl, "shader-vs");
-		var fragmentShader = getShader(gl, "shader-fs");
-
+		
+		var vertexShader = getShader(vertex, gl.VERTEX_SHADER);
+		var fragmentShader = getShader(fragment, gl.FRAGMENT_SHADER);
+		
 		gl.attachShader(shaderProgram, vertexShader);
 		gl.attachShader(shaderProgram, fragmentShader);
 		gl.linkProgram(shaderProgram);
@@ -975,37 +975,21 @@ function ZenithWGL(canvas) {
 		if (!gl.getProgramParameter(shaderProgram, gl.LINK_STATUS)) {
 			alert("Unable to initialize the shader program.");
 		}
-
-		function getShader(gl, id) {
-			var shaderScript = document.getElementById(id);
-
-			if (!shaderScript) {
-				return null;
-			}
-
-			var theSource = "";
-			var currentChild = shaderScript.firstChild;
-			while (currentChild) {
-				if (currentChild.nodeType == currentChild.TEXT_NODE) {
-					theSource += currentChild.textContent;
-				}
-
-				currentChild = currentChild.nextSibling;
-			}
-
+		
+		function getShader(source, type) {
 			var shader;
-			if (shaderScript.type == "x-shader/x-vertex") {
+			if (type == gl.VERTEX_SHADER) {
 				shader = gl.createShader(gl.VERTEX_SHADER);
-			} else if (shaderScript.type == "x-shader/x-fragment") {
+			} else if (type == gl.FRAGMENT_SHADER) {
 				shader = gl.createShader(gl.FRAGMENT_SHADER);
 			} else {
 				return null;
 			}
-
-			gl.shaderSource(shader, theSource);
-
+			
+			gl.shaderSource(shader, source);
+			
 			gl.compileShader(shader);
-
+			
 			if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
 				alert("An error occurred compiling the shader: " + gl.getShaderInfoLog(shader));
 				return null;
@@ -1013,16 +997,158 @@ function ZenithWGL(canvas) {
 
 			return shader;
 		}
-
+		
 		this.getShaderProgram = function() {
 			return shaderProgram;
 		};
 	}
 
 	function World() {
-		var camera = new Camera(gl);
-		var input = new Input(gl);
-		var shader = new Shader(gl);
+		var camera = new Camera();
+		
+		var input = new Input();
+		
+		var vertexShader = [
+			"attribute highp vec3 posVertex;",
+			"attribute highp vec2 uvVertex;",
+			"attribute highp vec3 normalVertex;",
+		
+			"uniform highp mat4 mvp;",
+			"uniform highp mat4 model;",
+			"uniform highp mat3 normal;",
+		
+			"varying highp vec3 posFrag;",
+			"varying highp vec2 uvFrag;",
+			"varying highp vec3 normalFrag;",
+			
+			"void main() {",
+			"	gl_Position = mvp * vec4(posVertex, 1.0);",
+			"	posFrag = vec3(model * vec4(posVertex, 1.0));",
+			"	uvFrag = uvVertex;",
+			"	normalFrag = normal * normalVertex;",
+			"}"
+		].join("\n");
+		var fragmentShader = [
+			"struct Material {",
+			"	highp vec3 diffuse;",
+			"	highp vec3 specular;",
+			"	highp float shininess;",
+			"};",
+		
+			"struct DirectionalLight {",
+			"	highp vec3 direction;",
+			"	highp vec3 ambient;",
+			"	highp vec3 diffuse;",
+			"	highp vec3 specular;",
+			"};",
+		
+			"struct PointLight {",
+			"	highp vec3 position;",
+			"	highp vec3 ambient;",
+			"	highp vec3 diffuse;",
+			"	highp vec3 specular;",
+			"	highp float constant;",
+			"	highp float linear;",
+			"	highp float quadratic;",
+			"};",
+		
+			"struct SpotLight {",
+			"	highp vec3 position;",
+			"	highp vec3 direction;",
+			"	highp vec3 ambient;",
+			"	highp vec3 diffuse;",
+			"	highp vec3 specular;",
+			"	highp float constant;",
+			"	highp float linear;",
+			"	highp float quadratic;",
+			"	highp float cutOff;",
+			"	highp float outerCutOff;",
+			"};",
+		
+			"varying highp vec3 posFrag;",
+			"varying highp vec2 uvFrag;",
+			"varying highp vec3 normalFrag;",
+		
+			"uniform Material material;",
+			"uniform DirectionalLight directionalLight;",
+			"uniform PointLight pointLight;",
+			"uniform SpotLight spotLight;",
+			"uniform highp vec3 viewPosition;",
+		
+			"highp vec3 calcDirectionalLight(DirectionalLight directionalLight, highp vec3 normal, highp vec3 viewDirection) {",
+			"	highp vec3 lightDirection = normalize(-directionalLight.direction);",
+			"	highp vec3 halfwayDirection = normalize(lightDirection + viewDirection);",
+			
+			"	highp float diff = max(dot(normal, lightDirection), 0.0);",
+			"	highp float spec = max(dot(normal, halfwayDirection), 0.0);",
+			"	spec = pow(spec, material.shininess);",
+			
+			"	highp vec3 ambient = directionalLight.ambient * material.diffuse;",
+			"	highp vec3 diffuse = directionalLight.diffuse * diff * material.diffuse;",
+			"	highp vec3 specular = directionalLight.specular * spec * material.specular;",
+			
+			"	return (ambient + diffuse + specular);",
+			"}",
+		
+			"highp vec3 calcPointLight(PointLight pointLight, highp vec3 normal, highp vec3 posFrag, highp vec3 viewDirection) {",
+			"	highp vec3 lightDirection = normalize(pointLight.position - posFrag);",
+			"	highp vec3 halfwayDirection = normalize(lightDirection + viewDirection);",
+			
+			"	highp float diff = max(dot(normal, lightDirection), 0.0);",
+			"	highp float spec = max(dot(normal, halfwayDirection), 0.0);",
+			"	spec = pow(spec, material.shininess);",
+			
+			"	highp float distance = length(pointLight.position - posFrag);",
+			"	highp float attenuation = 1.0 / (pointLight.constant + pointLight.linear * distance + pointLight.quadratic * (distance * distance));",
+			
+			"	highp vec3 ambient = pointLight.ambient * material.diffuse;",
+			"	highp vec3 diffuse = pointLight.diffuse * diff * material.diffuse;",
+			"	highp vec3 specular = pointLight.specular * spec * material.specular;",
+			
+			"	ambient *= attenuation;",
+			"	diffuse *= attenuation;",
+			"	specular *= attenuation;",
+			
+			"	return (ambient + diffuse + specular);",
+			"}",
+		
+			"highp vec3 calcSpotLight(SpotLight spotLight, highp vec3 normal, highp vec3 posFrag, highp vec3 viewDirection) {",
+			"	highp vec3 lightDirection = normalize(spotLight.position - posFrag);",
+			"	highp vec3 halfwayDirection = normalize(lightDirection + viewDirection);",
+			
+			"	highp float diff = max(dot(normal, lightDirection), 0.0);",
+			"	highp float spec = max(dot(normal, halfwayDirection), 0.0);",
+			"	spec = pow(spec, material.shininess);",
+			
+			"	highp float distance = length(spotLight.position - posFrag);",
+			"	highp float attenuation = 1.0 / (spotLight.constant + spotLight.linear * distance + spotLight.quadratic * (distance * distance));",
+			
+			"	highp float theta = dot(lightDirection, normalize(-spotLight.direction));",
+			"	highp float epsilon = spotLight.cutOff - spotLight.outerCutOff;",
+			"	highp float intensity = clamp((theta - spotLight.outerCutOff) / epsilon, 0.0, 1.0);",
+			
+			"	highp vec3 ambient = pointLight.ambient * material.diffuse;",
+			"	highp vec3 diffuse = pointLight.diffuse * diff * material.diffuse;",
+			"	highp vec3 specular = pointLight.specular * spec * material.specular;",
+			
+			"	ambient *= attenuation * intensity;",
+			"	diffuse *= attenuation * intensity;",
+			"	specular *= attenuation * intensity;",
+			
+			"	return (ambient + diffuse + specular);",
+			"}",
+		
+			"void main() {",
+			"	highp vec3 normal = normalize(normalFrag);",
+			"	highp vec3 viewDirection = normalize(viewPosition - posFrag);",
+			"	highp vec3 result = calcDirectionalLight(directionalLight, normal, viewDirection);",
+			"	result += calcPointLight(pointLight, normal, posFrag, viewDirection);",
+			"	result += calcSpotLight(spotLight, normal, posFrag, viewDirection);",
+			"	gl_FragColor = vec4(result, 1.0);",
+			"}"
+		].join("\n");
+		var shader = new Shader(vertexShader, fragmentShader);
+		
 		var objects = [];
 
 		this.update = function(deltaTime) {
