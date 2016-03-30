@@ -935,30 +935,29 @@ function ZenithWGL(canvas) {
 
 	function Render() {
 		gl.clearColor(0, 0, 0, 1);
-		gl.enable(gl.DEPTH_TEST);
+		gl.cullFace(gl.BACK);
+		gl.frontFace(gl.CCW);
 		gl.depthFunc(gl.LEQUAL);
-		gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
-		gl.viewport(0, 0, gl.canvas.width, gl.canvas.height);
+		resize();
 
 		this.render = function(world) {
-			resize(gl.canvas);
+			resize();
 
-			gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
 			if (world != null) {
 				world.render();
 			}
 		};
 
-		function resize(canvas) {
-			var displayWidth = canvas.clientWidth;
-			var displayHeight = canvas.clientHeight;
+		function resize() {
+			var displayWidth = gl.canvas.clientWidth;
+			var displayHeight = gl.canvas.clientHeight;
 
-			if (canvas.width != displayWidth || canvas.height != displayHeight) {
-				canvas.width = displayWidth;
-				canvas.height = displayHeight;
+			if (gl.canvas.width != displayWidth || gl.canvas.height != displayHeight) {
+				gl.canvas.width = displayWidth;
+				gl.canvas.height = displayHeight;
 			}
 
-			gl.viewport(0, 0, canvas.width, canvas.height);
+			gl.viewport(0, 0, gl.canvas.width, gl.canvas.height);
 		}
 	}
 	
@@ -1008,7 +1007,7 @@ function ZenithWGL(canvas) {
 		
 		var input = new Input();
 		
-		var vertexShader = [
+		var firstPassVertexShader = [
 			"attribute highp vec3 posVertex;",
 			"attribute highp vec2 uvVertex;",
 			"attribute highp vec3 normalVertex;",
@@ -1028,7 +1027,7 @@ function ZenithWGL(canvas) {
 			"	normalFrag = normal * normalVertex;",
 			"}"
 		].join("\n");
-		var fragmentShader = [
+		var firstPassFragmentShader = [
 			"struct Material {",
 			"	highp vec3 diffuse;",
 			"	highp vec3 specular;",
@@ -1147,43 +1146,239 @@ function ZenithWGL(canvas) {
 			"	gl_FragColor = vec4(result, 1.0);",
 			"}"
 		].join("\n");
-		var shader = new Shader(vertexShader, fragmentShader);
+		var firstPassShader = new Shader(firstPassVertexShader, firstPassFragmentShader);
 		
+		var secondPassVertexShader = [
+			"attribute highp vec3 posVertex;",
+			"attribute highp vec2 uvVertex;",
+		
+			"varying highp vec2 uvFrag;",
+			
+			"void main() {",
+			"	gl_Position = vec4(posVertex, 1);",
+			"	uvFrag = uvVertex;",
+			"}"
+		].join("\n");
+		var secondPassFragmentShader = [
+			"varying highp vec2 uvFrag;",
+			
+			"uniform sampler2D leftTexture;",
+			"uniform sampler2D rightTexture;",
+			
+			"void main() {",
+			"	highp vec2 coord = vec2(floor(gl_FragCoord.x), floor(gl_FragCoord.y));",
+			"	if (mod(coord.y, 2.0) == 0.0) {",
+			"		gl_FragColor = texture2D(leftTexture, uvFrag);",
+			"	} else {",
+			"		gl_FragColor = texture2D(rightTexture, uvFrag);",
+			"	}",
+			"}"
+		].join("\n");
+		var secondPassShader = new Shader(secondPassVertexShader, secondPassFragmentShader);
+				
 		var objects = [];
-
+		
+		var vertices;
+		var VBO;
+		var uvs;
+		var TBO;
+		var indices;
+		var IBO;
+		initQuad();
+		
+		var leftTexture;
+		var leftFramebuffer;
+		var rightTexture;
+		var rightFramebuffer;
+		initFramebuffers();
+		
 		this.update = function(deltaTime) {
 			input.update(camera, deltaTime);
 			camera.update();
 		};
 
 		this.render = function() {
+			firstPass();
+			secondPass();
+		};
+		
+		function initQuad() {
+			vertices = [
+				-1, -1, 0,
+				-1,  1, 0,
+				 1,  1, 0,
+				 1, -1, 0
+			];
+			VBO = gl.createBuffer();
+			gl.bindBuffer(gl.ARRAY_BUFFER, VBO);
+			gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(vertices), gl.STATIC_DRAW);
+			VBO.itemSize = 3;
+			
+			uvs = [
+				0, 0,
+				0, 1,
+				1, 1,
+				1, 0
+			];
+			TBO = gl.createBuffer();
+			gl.bindBuffer(gl.ARRAY_BUFFER, TBO);
+			gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(uvs), gl.STATIC_DRAW);
+			TBO.itemSize = 2;
+			
+			indices = [1, 0, 3, 1, 3, 2];
+			IBO = gl.createBuffer();
+			gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, IBO);
+			gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint16Array(indices), gl.STATIC_DRAW);
+			IBO.itemSize = 1;
+			IBO.numItems = indices.length / IBO.itemSize;
+		}
+		
+		function initFramebuffers() {
+			leftTexture = gl.createTexture();
+			gl.bindTexture(gl.TEXTURE_2D, leftTexture);
+			gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+			gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+			gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+			gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+			gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.canvas.width, gl.canvas.height, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+			
+			leftFramebuffer = gl.createFramebuffer();
+			gl.bindFramebuffer(gl.FRAMEBUFFER, leftFramebuffer);
+			gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, leftTexture, 0);
+			gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+			
+			rightTexture = gl.createTexture();
+			gl.bindTexture(gl.TEXTURE_2D, rightTexture);
+			gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+			gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+			gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+			gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+			gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.canvas.width, gl.canvas.height, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+			
+			rightFramebuffer = gl.createFramebuffer();
+			gl.bindFramebuffer(gl.FRAMEBUFFER, rightFramebuffer);
+			gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, rightTexture, 0);
+			gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+		}
+		
+		function firstPass() {
+			gl.enable(gl.CULL_FACE);
+			gl.enable(gl.DEPTH_TEST);
+			leftFramebufferPass();
+			rightFramebufferPass();
+			gl.disable(gl.DEPTH_TEST);
+			gl.disable(gl.CULL_FACE);
+		}
+		
+		function leftFramebufferPass() {
+			gl.bindFramebuffer(gl.FRAMEBUFFER, leftFramebuffer);
+			gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+		
+			var oldPos = camera.getPosition();
+			var newPos = oldPos;
+			var forward = vec3.fromValues(camera.getDirection()[0], 0, camera.getDirection()[2]);
+			vec3.normalize(forward, forward);
+			var right = vec3.create();
+			vec3.cross(right, forward, camera.getUp());
+			vec3.scale(right, right, 0.05);
+			vec3.subtract(newPos, newPos, right);
+			camera.setPosition(newPos);
+			camera.update();
 			for (var i = 0; i < objects.length; i++) {
-				gl.useProgram(shader.getShaderProgram());
+				gl.useProgram(firstPassShader.getShaderProgram());
 
 				setUpShaders(objects[i]);
 
-				objects[i].render(shader);
+				objects[i].render(firstPassShader);
+				
+				tearDownShaders();
 			}
-		};
+			camera.setPosition(oldPos);
+			camera.update();
+			
+			gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+		}
+		
+		function rightFramebufferPass() {
+			gl.bindFramebuffer(gl.FRAMEBUFFER, rightFramebuffer);
+			gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+		
+			var oldPos = camera.getPosition();
+			var newPos = oldPos;
+			var forward = vec3.fromValues(camera.getDirection()[0], 0, camera.getDirection()[2]);
+			vec3.normalize(forward, forward);
+			var right = vec3.create();
+			vec3.cross(right, forward, camera.getUp());
+			vec3.scale(right, right, 0.05);
+			vec3.add(newPos, newPos, right);
+			camera.setPosition(newPos);
+			camera.update();
+			for (var i = 0; i < objects.length; i++) {
+				gl.useProgram(firstPassShader.getShaderProgram());
 
+				setUpShaders(objects[i]);
+
+				objects[i].render(firstPassShader);
+				
+				tearDownShaders();
+			}
+			camera.setPosition(oldPos);
+			camera.update();
+			
+			gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+		}
+		
+		function secondPass() {
+			gl.clear(gl.COLOR_BUFFER_BIT);
+			
+			gl.useProgram(secondPassShader.getShaderProgram());
+			
+			secondPassShader.getShaderProgram().vertexPositionAttribute = gl.getAttribLocation(secondPassShader.getShaderProgram(), "posVertex");
+			gl.enableVertexAttribArray(secondPassShader.getShaderProgram().vertexPositionAttribute);
+			
+			secondPassShader.getShaderProgram().vertexUVAttribute = gl.getAttribLocation(secondPassShader.getShaderProgram(), "uvVertex");
+			gl.enableVertexAttribArray(secondPassShader.getShaderProgram().vertexUVAttribute);
+			
+			var leftTextureLocation = gl.getUniformLocation(secondPassShader.getShaderProgram(), "leftTexture");
+			var rightTextureLocation = gl.getUniformLocation(secondPassShader.getShaderProgram(), "rightTexture");
+			
+			gl.uniform1i(leftTextureLocation, 0);
+			gl.uniform1i(rightTextureLocation, 1);
+			
+			gl.activeTexture(gl.TEXTURE0);
+			gl.bindTexture(gl.TEXTURE_2D, leftTexture);
+			gl.activeTexture(gl.TEXTURE1);
+			gl.bindTexture(gl.TEXTURE_2D, rightTexture);
+
+												
+			gl.bindBuffer(gl.ARRAY_BUFFER, VBO);
+			gl.vertexAttribPointer(secondPassShader.getShaderProgram().vertexPositionAttribute, VBO.itemSize, gl.FLOAT, false, 0, 0);
+			
+			gl.bindBuffer(gl.ARRAY_BUFFER, TBO);
+			gl.vertexAttribPointer(secondPassShader.getShaderProgram().vertexUVAttribute, TBO.itemSize, gl.FLOAT, false, 0, 0);
+			
+			gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, IBO);
+			gl.drawElements(gl.TRIANGLES, IBO.numItems, gl.UNSIGNED_SHORT, 0);
+		}
+		
 		function setUpShaders(object) {
 			setUpShaderAttributes();
 			setUpTransformations(object);
 			setUpLighting();
 
-			var viewPositionLocation = gl.getUniformLocation(shader.getShaderProgram(), "viewPosition");
+			var viewPositionLocation = gl.getUniformLocation(firstPassShader.getShaderProgram(), "viewPosition");
 			gl.uniform3f(viewPositionLocation, camera.getPosition()[0], camera.getPosition()[1], camera.getPosition()[2]);
 		}
 
 		function setUpShaderAttributes() {
-			shader.getShaderProgram().vertexPositionAttribute = gl.getAttribLocation(shader.getShaderProgram(), "posVertex");
-			gl.enableVertexAttribArray(shader.getShaderProgram().vertexPositionAttribute);
+			firstPassShader.getShaderProgram().vertexPositionAttribute = gl.getAttribLocation(firstPassShader.getShaderProgram(), "posVertex");
+			gl.enableVertexAttribArray(firstPassShader.getShaderProgram().vertexPositionAttribute);
 
-			shader.getShaderProgram().vertexUVAttribute = gl.getAttribLocation(shader.getShaderProgram(), "uvVertex");
-			gl.enableVertexAttribArray(shader.getShaderProgram().vertexUVAttribute);
+			firstPassShader.getShaderProgram().vertexUVAttribute = gl.getAttribLocation(firstPassShader.getShaderProgram(), "uvVertex");
+			gl.enableVertexAttribArray(firstPassShader.getShaderProgram().vertexUVAttribute);
 
-			shader.getShaderProgram().vertexNormalAttribute = gl.getAttribLocation(shader.getShaderProgram(), "normalVertex");
-			gl.enableVertexAttribArray(shader.getShaderProgram().vertexNormalAttribute);
+			firstPassShader.getShaderProgram().vertexNormalAttribute = gl.getAttribLocation(firstPassShader.getShaderProgram(), "normalVertex");
+			gl.enableVertexAttribArray(firstPassShader.getShaderProgram().vertexNormalAttribute);
 		}
 
 		function setUpTransformations(object) {
@@ -1192,10 +1387,10 @@ function ZenithWGL(canvas) {
 			mat4.multiply(mvp, mvp, camera.getView());
 			mat4.multiply(mvp, mvp, object.getTransform());
 
-			var mvpLocation = gl.getUniformLocation(shader.getShaderProgram(), "mvp");
+			var mvpLocation = gl.getUniformLocation(firstPassShader.getShaderProgram(), "mvp");
 			gl.uniformMatrix4fv(mvpLocation, false, mvp);
 
-			var modelLocation = gl.getUniformLocation(shader.getShaderProgram(), "model");
+			var modelLocation = gl.getUniformLocation(firstPassShader.getShaderProgram(), "model");
 			gl.uniformMatrix4fv(modelLocation, false, object.getTransform());
 
 			var mv = mat4.create();
@@ -1204,13 +1399,13 @@ function ZenithWGL(canvas) {
 			var normal = mat3.create();
 			mat3.normalFromMat4(normal, object.getTransform());
 
-			var normalLocation = gl.getUniformLocation(shader.getShaderProgram(), "normal");
+			var normalLocation = gl.getUniformLocation(firstPassShader.getShaderProgram(), "normal");
 			gl.uniformMatrix3fv(normalLocation, false, normal);
 
 			var materialLocation = {};
-			materialLocation.diffuse = gl.getUniformLocation(shader.getShaderProgram(), "material.diffuse");
-			materialLocation.specular = gl.getUniformLocation(shader.getShaderProgram(), "material.specular");
-			materialLocation.shininess = gl.getUniformLocation(shader.getShaderProgram(), "material.shininess");
+			materialLocation.diffuse = gl.getUniformLocation(firstPassShader.getShaderProgram(), "material.diffuse");
+			materialLocation.specular = gl.getUniformLocation(firstPassShader.getShaderProgram(), "material.specular");
+			materialLocation.shininess = gl.getUniformLocation(firstPassShader.getShaderProgram(), "material.shininess");
 			gl.uniform3f(materialLocation.diffuse, object.getMaterial().getDiffuse()[0], object.getMaterial().getDiffuse()[1], object.getMaterial().getDiffuse()[2]);
 			gl.uniform3f(materialLocation.specular, object.getMaterial().getSpecular()[0], object.getMaterial().getSpecular()[1], object.getMaterial().getSpecular()[2]);
 			gl.uniform1f(materialLocation.shininess, object.getMaterial().getShininess());
@@ -1228,10 +1423,10 @@ function ZenithWGL(canvas) {
 			directionalLight.setSpecular(vec3.fromValues(1, 1, 1));
 
 			var directionalLightLocation = {};
-			directionalLightLocation.direction = gl.getUniformLocation(shader.getShaderProgram(), "directionalLight.direction");
-			directionalLightLocation.ambient = gl.getUniformLocation(shader.getShaderProgram(), "directionalLight.ambient");
-			directionalLightLocation.diffuse = gl.getUniformLocation(shader.getShaderProgram(), "directionalLight.diffuse");
-			directionalLightLocation.specular = gl.getUniformLocation(shader.getShaderProgram(), "directionalLight.specular");
+			directionalLightLocation.direction = gl.getUniformLocation(firstPassShader.getShaderProgram(), "directionalLight.direction");
+			directionalLightLocation.ambient = gl.getUniformLocation(firstPassShader.getShaderProgram(), "directionalLight.ambient");
+			directionalLightLocation.diffuse = gl.getUniformLocation(firstPassShader.getShaderProgram(), "directionalLight.diffuse");
+			directionalLightLocation.specular = gl.getUniformLocation(firstPassShader.getShaderProgram(), "directionalLight.specular");
 			gl.uniform3f(directionalLightLocation.direction, directionalLight.getDirection()[0], directionalLight.getDirection()[1], directionalLight.getDirection()[2]);
 			gl.uniform3f(directionalLightLocation.ambient, directionalLight.getAmbient()[0], directionalLight.getAmbient()[1], directionalLight.getAmbient()[2]);
 			gl.uniform3f(directionalLightLocation.diffuse, directionalLight.getDiffuse()[0], directionalLight.getDiffuse()[1], directionalLight.getDiffuse()[2]);
@@ -1251,13 +1446,13 @@ function ZenithWGL(canvas) {
 			pointLight.setQuadratic(0.032);
 
 			var pointLightLocation = {};
-			pointLightLocation.position = gl.getUniformLocation(shader.getShaderProgram(), "pointLight.position");
-			pointLightLocation.ambient = gl.getUniformLocation(shader.getShaderProgram(), "pointLight.ambient");
-			pointLightLocation.diffuse = gl.getUniformLocation(shader.getShaderProgram(), "pointLight.diffuse");
-			pointLightLocation.specular = gl.getUniformLocation(shader.getShaderProgram(), "pointLight.specular");
-			pointLightLocation.constant = gl.getUniformLocation(shader.getShaderProgram(), "pointLight.constant");
-			pointLightLocation.linear = gl.getUniformLocation(shader.getShaderProgram(), "pointLight.linear");
-			pointLightLocation.quadratic = gl.getUniformLocation(shader.getShaderProgram(), "pointLight.quadratic");
+			pointLightLocation.position = gl.getUniformLocation(firstPassShader.getShaderProgram(), "pointLight.position");
+			pointLightLocation.ambient = gl.getUniformLocation(firstPassShader.getShaderProgram(), "pointLight.ambient");
+			pointLightLocation.diffuse = gl.getUniformLocation(firstPassShader.getShaderProgram(), "pointLight.diffuse");
+			pointLightLocation.specular = gl.getUniformLocation(firstPassShader.getShaderProgram(), "pointLight.specular");
+			pointLightLocation.constant = gl.getUniformLocation(firstPassShader.getShaderProgram(), "pointLight.constant");
+			pointLightLocation.linear = gl.getUniformLocation(firstPassShader.getShaderProgram(), "pointLight.linear");
+			pointLightLocation.quadratic = gl.getUniformLocation(firstPassShader.getShaderProgram(), "pointLight.quadratic");
 			gl.uniform3f(pointLightLocation.position, pointLight.getPosition()[0], pointLight.getPosition()[1], pointLight.getPosition()[2]);
 			gl.uniform3f(pointLightLocation.ambient, pointLight.getAmbient()[0], pointLight.getAmbient()[1], pointLight.getAmbient()[2]);
 			gl.uniform3f(pointLightLocation.diffuse, pointLight.getDiffuse()[0], pointLight.getDiffuse()[1], pointLight.getDiffuse()[2]);
@@ -1283,16 +1478,16 @@ function ZenithWGL(canvas) {
 			spotLight.setOuterCutOff(20.0);
 
 			var spotLightLocation = {};
-			spotLightLocation.position = gl.getUniformLocation(shader.getShaderProgram(), "spotLight.position");
-			spotLightLocation.direction = gl.getUniformLocation(shader.getShaderProgram(), "spotLight.direction");
-			spotLightLocation.ambient = gl.getUniformLocation(shader.getShaderProgram(), "spotLight.ambient");
-			spotLightLocation.diffuse = gl.getUniformLocation(shader.getShaderProgram(), "spotLight.diffuse");
-			spotLightLocation.specular = gl.getUniformLocation(shader.getShaderProgram(), "spotLight.specular");
-			spotLightLocation.constant = gl.getUniformLocation(shader.getShaderProgram(), "spotLight.constant");
-			spotLightLocation.linear = gl.getUniformLocation(shader.getShaderProgram(), "spotLight.linear");
-			spotLightLocation.quadratic = gl.getUniformLocation(shader.getShaderProgram(), "spotLight.quadratic");
-			spotLightLocation.cutOff = gl.getUniformLocation(shader.getShaderProgram(), "spotLight.cutOff");
-			spotLightLocation.outerCutOff = gl.getUniformLocation(shader.getShaderProgram(), "spotLight.outerCutOff");
+			spotLightLocation.position = gl.getUniformLocation(firstPassShader.getShaderProgram(), "spotLight.position");
+			spotLightLocation.direction = gl.getUniformLocation(firstPassShader.getShaderProgram(), "spotLight.direction");
+			spotLightLocation.ambient = gl.getUniformLocation(firstPassShader.getShaderProgram(), "spotLight.ambient");
+			spotLightLocation.diffuse = gl.getUniformLocation(firstPassShader.getShaderProgram(), "spotLight.diffuse");
+			spotLightLocation.specular = gl.getUniformLocation(firstPassShader.getShaderProgram(), "spotLight.specular");
+			spotLightLocation.constant = gl.getUniformLocation(firstPassShader.getShaderProgram(), "spotLight.constant");
+			spotLightLocation.linear = gl.getUniformLocation(firstPassShader.getShaderProgram(), "spotLight.linear");
+			spotLightLocation.quadratic = gl.getUniformLocation(firstPassShader.getShaderProgram(), "spotLight.quadratic");
+			spotLightLocation.cutOff = gl.getUniformLocation(firstPassShader.getShaderProgram(), "spotLight.cutOff");
+			spotLightLocation.outerCutOff = gl.getUniformLocation(firstPassShader.getShaderProgram(), "spotLight.outerCutOff");
 			gl.uniform3f(spotLightLocation.position, spotLight.getPosition()[0], spotLight.getPosition()[1], spotLight.getPosition()[2]);
 			gl.uniform3f(spotLightLocation.direction, spotLight.getDirection()[0], spotLight.getDirection()[1], spotLight.getDirection()[2]);
 			gl.uniform3f(spotLightLocation.ambient, spotLight.getAmbient()[0], spotLight.getAmbient()[1], spotLight.getAmbient()[2]);
@@ -1303,6 +1498,12 @@ function ZenithWGL(canvas) {
 			gl.uniform1f(spotLightLocation.quadratic, spotLight.getQuadratic());
 			gl.uniform1f(spotLightLocation.cutOff, Math.cos(glMatrix.toRadian(spotLight.getCutOff())));
 			gl.uniform1f(spotLightLocation.outerCutOff, Math.cos(glMatrix.toRadian(spotLight.getOuterCutOff())));
+		}
+		
+		function tearDownShaders() {
+			gl.disableVertexAttribArray(firstPassShader.getShaderProgram().vertexPositionAttribute);
+			gl.disableVertexAttribArray(firstPassShader.getShaderProgram().vertexUVAttribute);
+			gl.disableVertexAttribArray(firstPassShader.getShaderProgram().vertexNormalAttribute);
 		}
 
 		this.spawn = function(object) {
@@ -1323,14 +1524,6 @@ function ZenithWGL(canvas) {
 
 		this.setInput = function(i) {
 			input = i;
-		};
-
-		this.getShader = function() {
-			return shader;
-		};
-
-		this.setShader = function(s) {
-			shader = s;
 		};
 	}
 
